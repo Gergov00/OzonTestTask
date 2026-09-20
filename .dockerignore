@@ -1,0 +1,11 @@
+.git
+.gitignore
+.worktrees
+.superpowers
+.env
+.env.*
+!.env.example
+coverage.out
+*.test
+README.md
+docs

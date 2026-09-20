@@ -1,0 +1,6 @@
+.worktrees/
+.env
+.env.*
+!.env.example
+coverage.out
+*.test
