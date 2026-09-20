@@ -3,6 +3,7 @@ package graphqlapi
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -12,6 +13,7 @@ import (
 
 func ErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 	presented := graphql.DefaultErrorPresenter(ctx, err)
+	log.Printf("graphql_error path=%v error=%q", presented.Path, err)
 
 	for sentinel, code := range map[error]string{
 		domain.ErrUnauthenticated:  "UNAUTHENTICATED",
@@ -30,7 +32,7 @@ func ErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 	var graphError *gqlerror.Error
 	if errors.As(err, &graphError) {
 		code, _ := graphError.Extensions["code"].(string)
-		if code == "GRAPHQL_PARSE_FAILED" || code == "GRAPHQL_VALIDATION_FAILED" {
+		if code == "GRAPHQL_PARSE_FAILED" || code == "GRAPHQL_VALIDATION_FAILED" || code == "COMPLEXITY_LIMIT_EXCEEDED" {
 			return presented
 		}
 	}

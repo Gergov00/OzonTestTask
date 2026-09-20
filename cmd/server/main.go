@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -175,7 +176,7 @@ func newHandlerWithWebsockets(deps Dependencies, connections *websocketTracker) 
 		return next(loader.WithNewCommentLoader(ctx, deps.Repository))
 	})
 	graphQL.Use(extension.Introspection{})
-	graphQL.Use(extension.FixedComplexityLimit(200))
+	graphQL.Use(extension.FixedComplexityLimit(500))
 
 	mux := http.NewServeMux()
 	mux.Handle("/query", connections.trackHandler(auth.Middleware(graphQL)))
@@ -189,7 +190,71 @@ func newHandlerWithWebsockets(deps Dependencies, connections *websocketTracker) 
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.Handle("/", playground.Handler("GraphQL playground", "/query"))
-	return mux
+	return requestLogging(log.Default(), mux)
+}
+
+type responseLogger struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *responseLogger) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *responseLogger) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *responseLogger) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w *responseLogger) Flush() {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *responseLogger) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	connection, readWriter, err := hijacker.Hijack()
+	if err == nil && w.status == 0 {
+		w.status = http.StatusSwitchingProtocols
+	}
+	return connection, readWriter, err
+}
+
+func (w *responseLogger) Push(target string, options *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, options)
+}
+
+func requestLogging(logger *log.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		response := &responseLogger{ResponseWriter: w}
+		next.ServeHTTP(response, r)
+		if response.status == 0 {
+			response.status = http.StatusOK
+		}
+		logger.Printf("http_request method=%s path=%s status=%d duration=%s", r.Method, r.URL.EscapedPath(), response.status, time.Since(started))
+	})
 }
 
 func newComplexity() graph.ComplexityRoot {

@@ -1,9 +1,11 @@
 package graphqlapi_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -115,6 +117,28 @@ func TestErrorPresenterSanitizesUnknownErrors(t *testing.T) {
 		if presented.Extensions["code"] != "INTERNAL" {
 			t.Fatalf("code = %v, want INTERNAL", presented.Extensions["code"])
 		}
+	}
+}
+
+func TestErrorPresenterLogsOriginalError(t *testing.T) {
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	previousPrefix := log.Prefix()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	})
+
+	graphqlapi.ErrorPresenter(t.Context(), errors.New("repository connection failed"))
+
+	got := logs.String()
+	if !strings.Contains(got, "graphql_error") || !strings.Contains(got, "repository connection failed") {
+		t.Fatalf("log = %q, want original GraphQL error", got)
 	}
 }
 

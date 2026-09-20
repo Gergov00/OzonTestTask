@@ -44,6 +44,38 @@ func TestNewHandlerHealth(t *testing.T) {
 	}
 }
 
+func TestNewHandlerLogsRequestMetadataWithoutHeaders(t *testing.T) {
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	previousPrefix := log.Prefix()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	})
+
+	handler := newHandler(newTestDependencies())
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	request.Header.Set("X-Author-ID", "must-not-be-logged")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	got := logs.String()
+	for _, want := range []string{"http_request", "method=GET", "path=/healthz", "status=200", "duration="} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("log = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "must-not-be-logged") {
+		t.Fatalf("log contains request header value: %q", got)
+	}
+}
+
 func TestNewHandlerGraphQLQuery(t *testing.T) {
 	handler := newHandler(newTestDependencies())
 	body := []byte(`{"query":"{ posts(first: 1) { nodes { id } } }"}`)
@@ -297,7 +329,7 @@ func TestNewHandlerRejectsOverlyComplexQuery(t *testing.T) {
 		Broker:     broker,
 	})
 	var fields strings.Builder
-	for i := range 201 {
+	for i := range 501 {
 		fmt.Fprintf(&fields, `p%d: createPost(input: {title: "title", content: "body"}) { id } `, i)
 	}
 	query := "mutation { " + fields.String() + " }"
@@ -338,6 +370,12 @@ func TestNewHandlerScalesComplexityByPageSize(t *testing.T) {
 			wantCalls: 1,
 		},
 		{
+			name:      "typical nested comment page",
+			query:     `{ post(id: "00000000-0000-0000-0000-000000000001") { title comments(first: 10) { nodes { id text authorID replies(first: 10) { nodes { id text } } } } } }`,
+			wantError: false,
+			wantCalls: 0,
+		},
+		{
 			name:      "nested maximum pages",
 			query:     `{ posts(first: 100) { nodes { comments(first: 100) { nodes { replies(first: 100) { nodes { id } } } } } } }`,
 			wantError: true,
@@ -367,6 +405,9 @@ func TestNewHandlerScalesComplexityByPageSize(t *testing.T) {
 			hasError := strings.Contains(response.Body.String(), `"errors"`)
 			if hasError != tt.wantError {
 				t.Fatalf("response = %s, wantError = %v", response.Body.String(), tt.wantError)
+			}
+			if tt.wantError && !strings.Contains(response.Body.String(), `"code":"COMPLEXITY_LIMIT_EXCEEDED"`) {
+				t.Fatalf("response = %s, want complexity limit error code", response.Body.String())
 			}
 			if calls := store.listPostsCalls.Load(); calls != tt.wantCalls {
 				t.Fatalf("ListPosts calls = %d, want %d", calls, tt.wantCalls)
