@@ -255,6 +255,32 @@ go test ./...
 go test -race ./...
 ```
 
+Для PowerShell 7 доступны готовые сценарии. Запуск PostgreSQL-профиля:
+
+```powershell
+.\scripts\start-postgres.ps1
+```
+
+Короткая проверка создания поста, комментария и ответа:
+
+```powershell
+.\scripts\smoke-test.ps1
+```
+
+Расширенная black-box проверка HTTP API, пагинации, ошибок и WebSocket-подписок:
+
+```powershell
+.\scripts\blackbox-test.ps1 `
+  -BaseUrl "http://127.0.0.1:8081" `
+  -WsUrl "ws://127.0.0.1:8081/query"
+```
+
+Полный набор Go-проверок:
+
+```powershell
+.\scripts\test.ps1
+```
+
 Интеграционный контракт PostgreSQL имеет build tag `integration` и требует `TEST_DATABASE_URL` с отдельной тестовой базой:
 
 ```bash
